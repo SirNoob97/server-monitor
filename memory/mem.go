@@ -1,4 +1,4 @@
-package mem
+package memory
 
 import (
 	"strconv"
@@ -7,7 +7,7 @@ import (
 	"github.com/SirNoob97/server-monitor/utils"
 )
 
-func VirtualMemory() (*VirtualMemoryStat, error) {
+func Status() (*VirtualMemory, error) {
 	location := utils.GetEnv("HOST_PROC", "/proc")
 	filename := utils.JoinPath(location, "meminfo")
 	lines, err := utils.ReadLines(filename)
@@ -16,7 +16,7 @@ func VirtualMemory() (*VirtualMemoryStat, error) {
 	}
 
 	memavail := false
-	ret := &VirtualMemoryStat{}
+	ret := &VirtualMemory{}
 
 	for _, ln := range lines {
 		fields := strings.Split(ln, ":")

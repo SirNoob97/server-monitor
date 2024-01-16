@@ -1,6 +1,6 @@
-package mem
+package memory
 
-type VirtualMemoryStat struct {
+type VirtualMemory struct {
 	// Total amount of RAM
 	Total uint64 `json:"total"`
 
