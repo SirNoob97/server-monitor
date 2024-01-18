@@ -8,9 +8,12 @@ import (
 )
 
 func Status() (*VirtualMemory, error) {
-	location := utils.GetEnv("HOST_PROC", "/proc")
-	filename := utils.JoinPath(location, "meminfo")
-	lines, err := utils.ReadLines(filename)
+	fileLocation := utils.FileLocation{
+		Env:           "HOST_PROC",
+		EnvDefaultVal: "/proc",
+		Segments:      []string{"meminfo"},
+	}
+	fileData, err := utils.ReadFile(fileLocation)
 	if err != nil {
 		return nil, err
 	}
@@ -18,7 +21,7 @@ func Status() (*VirtualMemory, error) {
 	memavail := false
 	ret := &VirtualMemory{}
 
-	for _, ln := range lines {
+	for _, ln := range fileData {
 		fields := strings.Split(ln, ":")
 		if len(fields) != 2 {
 			continue
