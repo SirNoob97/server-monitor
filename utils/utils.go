@@ -45,3 +45,9 @@ func ReadLines(filePath string) ([]string, error) {
 
 	return ret, nil
 }
+
+func ReadFile(fl FileLocation) ([]string, error) {
+	env := GetEnv(fl.Env, fl.EnvDefaultVal)
+	filename := JoinPath(env, fl.Segments...)
+	return ReadLines(filename)
+}
