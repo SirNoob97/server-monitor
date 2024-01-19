@@ -1,14 +1,50 @@
 package cpu
 
 import (
+	"context"
+	"errors"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/SirNoob97/server-monitor/utils"
 )
 
 func Status() ([]Info, error) {
+	esp, err := Specifications()
+	if err != nil {
+		return nil, err
+	}
+	if len(esp) == 0 {
+		return nil, err
+	}
+
+	fileLocation := utils.FileLocation{
+		Env:           "HOST_PROC",
+		EnvDefaultVal: "/proc",
+		Segments:      []string{"stat"},
+	}
+
+	percStat1, err := parsePercentageStats(fileLocation)
+	if err != nil {
+    return nil, err
+	}
+
+	if err := utils.Sleep(context.Background(), time.Second); err != nil {
+		return nil, err
+	}
+
+	percStat2, err := parsePercentageStats(fileLocation)
+	if err != nil {
+    return nil, err
+	}
+
+	return addPercentage(esp, percStat1, percStat2)
+}
+
+func Specifications() ([]Info, error) {
 	fileLocation := utils.FileLocation{
 		Env:           "HOST_PROC",
 		EnvDefaultVal: "/proc",
@@ -16,13 +52,13 @@ func Status() ([]Info, error) {
 	}
 	fileData, err := utils.ReadFile(fileLocation)
 	if err != nil {
-		fmt.Printf("Error reading file: cpuinfo, %s\n", err)
+		return nil, fmt.Errorf("Error reading file: cpuinfo, %s\n", err)
 	}
 
 	var ret []Info
 	var processorName string
 
-	c := Info{CPU: -1, Cores: 1}
+	c := &Info{CPU: -1, Cores: 1}
 	for _, line := range fileData {
 		fields := strings.Split(line, ":")
 		if len(fields) < 2 {
@@ -36,10 +72,11 @@ func Status() ([]Info, error) {
 			processorName = value
 		case "processor", "cpu number":
 			if c.CPU >= 0 {
-				overrideInfo(&c)
-				ret = append(ret, c)
+				overrideInfo(c)
+				ret = append(ret, *c)
 			}
-			c = Info{Cores: 1, ModelName: processorName}
+			c.Cores = 1
+      c.ModelName = processorName
 			t, err := strconv.ParseInt(value, 10, 64)
 			if err != nil {
 				return ret, err
@@ -80,10 +117,70 @@ func Status() ([]Info, error) {
 		}
 	}
 	if c.CPU >= 0 {
-		overrideInfo(&c)
-		ret = append(ret, c)
+		overrideInfo(c)
+		ret = append(ret, *c)
+	}
+
+	return ret, nil
+}
+
+func parsePercentageStats(fileLocation utils.FileLocation) ([]PercStat, error) {
+	fileData, err := utils.ReadFile(fileLocation)
+	if err != nil {
+		return nil, err
+	}
+	lines := []string{}
+	for _, line := range fileData {
+		if strings.HasPrefix(line, "cpu") {
+			lines = append(lines, line)
+		}
+	}
+
+	ret := make([]PercStat, 0, len(lines))
+	for _, ln := range lines {
+		ct, err := parseStat(ln)
+		if err != nil {
+			continue
+		}
+		ret = append(ret, *ct)
 	}
 	return ret, nil
+}
+
+func addPercentage(infos []Info, ps1, ps2 []PercStat) ([]Info, error) {
+	if len(ps1) != len(ps2) {
+		return nil, fmt.Errorf("Received different CPU counts: %d != %d", len(ps1), len(ps2))
+	}
+
+	percentages := make(map[int32]float64, len(ps2))
+	for i, ps := range ps2 {
+		cpu := strings.Replace(ps.CPU, "cpu", "", 1)
+		cpuNum, err := strconv.ParseInt(cpu, 10, 64)
+		if err != nil {
+      continue
+		}
+		percentages[int32(cpuNum)] = calculatePercentage(ps1[i], ps)
+	}
+
+	for _, info := range infos {
+		info.Percentage = percentages[info.CPU]
+	}
+
+	return infos, nil
+}
+
+func calculatePercentage(ps1, ps2 PercStat) float64 {
+	ps1Total := ps1.getCPUTotal()
+	ps2Total := ps2.getCPUTotal()
+	ps1Busy := ps1Total - ps1.Idle
+	ps2Busy := ps2Total - ps1.Idle
+	if ps2Busy <= ps1Busy {
+		return 0
+	}
+	if ps2Total <= ps1Total {
+		return 100
+	}
+	return math.Min(100, math.Max(0, (ps2Busy-ps1Busy)/(ps2Total-ps1Total)*100))
 }
 
 func overrideInfo(c *Info) {
@@ -123,4 +220,57 @@ func overrideInfo(c *Info) {
 	if c.Mhz > 9999 {
 		c.Mhz = c.Mhz / 1000.0 // value in Hz
 	}
+}
+
+func parseStat(line string) (*PercStat, error) {
+	fields := strings.Fields(line)
+	if len(fields) < 8 {
+		return nil, errors.New("stat does not contain cpu info")
+	}
+
+	if !strings.HasPrefix(fields[0], "cpu") {
+		return nil, errors.New("not contain cpu")
+	}
+
+	cpu := fields[0]
+	if cpu == "cpu" {
+		cpu = "cpu-total"
+	}
+	user, err := strconv.ParseFloat(fields[1], 64)
+	if err != nil {
+		return nil, err
+	}
+	nice, err := strconv.ParseFloat(fields[2], 64)
+	if err != nil {
+		return nil, err
+	}
+	system, err := strconv.ParseFloat(fields[3], 64)
+	if err != nil {
+		return nil, err
+	}
+	idle, err := strconv.ParseFloat(fields[4], 64)
+	if err != nil {
+		return nil, err
+	}
+	irq, err := strconv.ParseFloat(fields[6], 64)
+	if err != nil {
+		return nil, err
+	}
+	softirq, err := strconv.ParseFloat(fields[7], 64)
+	if err != nil {
+		return nil, err
+	}
+
+	clocksPerSec := float64(100)
+	ct := &PercStat{
+		CPU:     cpu,
+		User:    user / clocksPerSec,
+		Nice:    nice / clocksPerSec,
+		System:  system / clocksPerSec,
+		Idle:    idle / clocksPerSec,
+		Irq:     irq / clocksPerSec,
+		Softirq: softirq / clocksPerSec,
+	}
+
+	return ct, nil
 }
