@@ -29,7 +29,7 @@ func Status() ([]Info, error) {
 
 	percStat1, err := parsePercentageStats(fileLocation)
 	if err != nil {
-    return nil, err
+		return nil, err
 	}
 
 	if err := utils.Sleep(context.Background(), time.Second); err != nil {
@@ -38,7 +38,7 @@ func Status() ([]Info, error) {
 
 	percStat2, err := parsePercentageStats(fileLocation)
 	if err != nil {
-    return nil, err
+		return nil, err
 	}
 
 	return addPercentage(esp, percStat1, percStat2)
@@ -76,7 +76,7 @@ func Specifications() ([]Info, error) {
 				ret = append(ret, *c)
 			}
 			c.Cores = 1
-      c.ModelName = processorName
+			c.ModelName = processorName
 			t, err := strconv.ParseInt(value, 10, 64)
 			if err != nil {
 				return ret, err
@@ -157,23 +157,21 @@ func addPercentage(infos []Info, ps1, ps2 []PercStat) ([]Info, error) {
 		cpu := strings.Replace(ps.CPU, "cpu", "", 1)
 		cpuNum, err := strconv.ParseInt(cpu, 10, 64)
 		if err != nil {
-      continue
+			continue
 		}
 		percentages[int32(cpuNum)] = calculatePercentage(ps1[i], ps)
 	}
 
-	for _, info := range infos {
-		info.Percentage = percentages[info.CPU]
+	for i, info := range infos {
+		infos[i].Percentage = percentages[info.CPU]
 	}
 
 	return infos, nil
 }
 
 func calculatePercentage(ps1, ps2 PercStat) float64 {
-	ps1Total := ps1.getCPUTotal()
-	ps2Total := ps2.getCPUTotal()
-	ps1Busy := ps1Total - ps1.Idle
-	ps2Busy := ps2Total - ps1.Idle
+	ps1Total, ps1Busy := calculateBusyTime(ps1)
+	ps2Total, ps2Busy := calculateBusyTime(ps2)
 	if ps2Busy <= ps1Busy {
 		return 0
 	}
@@ -181,6 +179,12 @@ func calculatePercentage(ps1, ps2 PercStat) float64 {
 		return 100
 	}
 	return math.Min(100, math.Max(0, (ps2Busy-ps1Busy)/(ps2Total-ps1Total)*100))
+}
+
+func calculateBusyTime(ps PercStat) (float64, float64) {
+	total := ps.getCPUTotal()
+	busy := total - ps.Idle - ps.Iowait
+	return total, busy
 }
 
 func overrideInfo(c *Info) {
@@ -252,6 +256,10 @@ func parseStat(line string) (*PercStat, error) {
 	if err != nil {
 		return nil, err
 	}
+	iowait, err := strconv.ParseFloat(fields[5], 64)
+	if err != nil {
+		return nil, err
+	}
 	irq, err := strconv.ParseFloat(fields[6], 64)
 	if err != nil {
 		return nil, err
@@ -268,6 +276,7 @@ func parseStat(line string) (*PercStat, error) {
 		Nice:    nice / clocksPerSec,
 		System:  system / clocksPerSec,
 		Idle:    idle / clocksPerSec,
+		Iowait:  iowait / clocksPerSec,
 		Irq:     irq / clocksPerSec,
 		Softirq: softirq / clocksPerSec,
 	}

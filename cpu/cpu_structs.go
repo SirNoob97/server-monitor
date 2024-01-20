@@ -21,10 +21,11 @@ type PercStat struct {
 	System  float64
 	Idle    float64
 	Nice    float64
+	Iowait  float64
 	Irq     float64
 	Softirq float64
 }
 
 func (p *PercStat) getCPUTotal() float64 {
-	return p.User + p.System + p.Idle + p.Nice + p.Irq + p.Softirq
+	return p.User + p.System + p.Idle + p.Nice + p.Iowait + p.Irq + p.Softirq
 }
