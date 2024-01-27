@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/SirNoob97/server-monitor/utils"
+	"github.com/SirNoob97/server-monitor/pkg/utils"
 	"golang.org/x/exp/slices"
 	"golang.org/x/sys/unix"
 )

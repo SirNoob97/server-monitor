@@ -4,7 +4,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/SirNoob97/server-monitor/utils"
+	"github.com/SirNoob97/server-monitor/pkg/utils"
 )
 
 func Status() (*VirtualMemory, error) {

@@ -3,6 +3,7 @@ package utils
 import (
 	"bufio"
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"syscall"
@@ -65,4 +66,14 @@ func Sleep(ctx context.Context, interval time.Duration) error {
 	case <-timer.C:
 		return nil
 	}
+}
+
+func FormatSize(size uint64) string {
+	suffixes := []string{"B", "KB", "MB", "GB", "TB"}
+	i := 0
+	fSize := float64(size)
+	for ; fSize >= 1024 && i < len(suffixes); i++ {
+		fSize /= 1024
+	}
+	return fmt.Sprintf("%.2f %s", fSize, suffixes[i])
 }

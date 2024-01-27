@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/SirNoob97/server-monitor/utils"
+	"github.com/SirNoob97/server-monitor/pkg/utils"
 )
 
 func Status() ([]Info, error) {
