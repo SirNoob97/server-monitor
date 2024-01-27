@@ -10,9 +10,10 @@ import (
 
 	"github.com/SirNoob97/server-monitor/utils"
 	"golang.org/x/exp/slices"
+	"golang.org/x/sys/unix"
 )
 
-func Partitions() ([]PartitionInfo, error) {
+func PartitionsInfo() ([]PartitionInfo, error) {
 	procDir := "/proc/"
 	mountInfoDir := utils.JoinPath(procDir, "1")
 	fileData, useMounts, filename, err := readMountFile(mountInfoDir)
@@ -29,7 +30,7 @@ func Partitions() ([]PartitionInfo, error) {
 		return nil, err
 	}
 
-	ret := make([]PartitionInfo, 0, len(fileData))
+	partitions := make([]PartitionInfo, 0, len(fileData))
 	for _, ln := range fileData {
 		var pi PartitionInfo
 		if useMounts {
@@ -55,35 +56,35 @@ func Partitions() ([]PartitionInfo, error) {
 				return nil, fmt.Errorf("Cant parse file: %s, invalid line: %s\n", filename, ln)
 			}
 
-			fields := strings.Fields(sections[0])
-			if !slices.Contains(filSystems, fields[0]) || fields[1] == "none" {
+			firstSection := strings.Fields(sections[0])
+			secondSection := strings.Fields(sections[1])
+			if !slices.Contains(filSystems, secondSection[0]) || secondSection[1] == "none" {
 				continue
 			}
 
-			blockDeviceID := fields[2]
-			mountPoint := fields[4]
-			mountOpts := strings.Split(fields[5], ",")
-			if rootDir := fields[2]; rootDir != "" && rootDir != "/" {
+			blockDeviceID := firstSection[2]
+			mountPoint := firstSection[4]
+			mountOpts := strings.Split(firstSection[5], ",")
+			if rootDir := firstSection[2]; rootDir != "" && rootDir != "/" {
 				mountOpts = append(mountOpts, "bind")
 			}
 
-			fields = strings.Fields(sections[1])
-			fstype := fields[0]
-			device := fields[1]
-      if device == "/dev/root" {
-        path := "/sys/dev/block/" + blockDeviceID
+			fstype := secondSection[0]
+			device := secondSection[1]
+			if device == "/dev/root" {
+				path := "/sys/dev/block/" + blockDeviceID
 				devpath, err := os.Readlink(path)
 				if err == nil {
 					device = strings.Replace(device, "root", filepath.Base(devpath), 1)
 				}
 			}
 
-      if strings.HasPrefix(device, "/dev/mapper/") {
-        path, err := filepath.EvalSymlinks(device)
-        if err == nil {
-          device = path
-        }
-      }
+			if strings.HasPrefix(device, "/dev/mapper/") {
+				path, err := filepath.EvalSymlinks(device)
+				if err == nil {
+					device = path
+				}
+			}
 
 			scapedMountPoint, err := strconv.Unquote(`"` + mountPoint + `"`)
 			if err != nil {
@@ -97,14 +98,53 @@ func Partitions() ([]PartitionInfo, error) {
 				Opts:       mountOpts,
 			}
 		}
-    ret = append(ret, pi)
+		partitions = append(partitions, pi)
+	}
+
+	for i := range partitions {
+		partitions[i].Usage, err = PartitionUsage(partitions[i].Mountpoint)
+		if err != nil {
+			fmt.Printf("Error when reading partition usage: %s - %s", partitions[i].Mountpoint, err)
+		}
+	}
+
+	return partitions, nil
+}
+
+func PartitionUsage(path string) (*UsageStat, error) {
+	stat := unix.Statfs_t{}
+	err := unix.Statfs(path, &stat)
+	if err != nil {
+		return nil, err
+	}
+
+	bSize := uint64(stat.Bsize)
+	ret := &UsageStat{
+		Total:       stat.Blocks * bSize,
+		Free:        stat.Bavail * bSize,
+		Used:        (stat.Blocks - stat.Bfree) * bSize,
+		InodesTotal: stat.Files,
+		InodesFree:  stat.Ffree,
+		InodesUsed:  stat.Files - stat.Ffree,
+	}
+
+	if (ret.Used + ret.Free) == 0 {
+		ret.UsedPercent = 0
+	} else {
+		ret.UsedPercent = (float64(ret.Used) / float64(ret.Used+ret.Free)) * 100.0
+	}
+
+	if ret.InodesTotal == 0 {
+		ret.InodesUsedPercent = 0
+	} else {
+		ret.InodesUsedPercent = (float64(ret.InodesUsed) / float64(ret.InodesTotal)) * 100.0
 	}
 
 	return ret, nil
 }
 
 func getFileSystems(procDir string) ([]string, error) {
-	filename := utils.JoinPath("filesystems")
+	filename := utils.JoinPath(procDir, "filesystems")
 	fileData, err := utils.ReadLines(filename)
 	if err != nil {
 		return nil, err
@@ -113,7 +153,7 @@ func getFileSystems(procDir string) ([]string, error) {
 	var ret []string
 	for _, ln := range fileData {
 		if !strings.HasPrefix(ln, "nodev") {
-			ret = append(ret, ln)
+			ret = append(ret, strings.TrimSpace(ln))
 			continue
 		}
 
@@ -133,7 +173,7 @@ func readMountFile(mountInfoDir string) ([]string, bool, string, error) {
 	useMounts := false
 	if err != nil {
 		var pathErr *os.PathError
-		if !errors.As(err, pathErr) {
+		if !errors.As(err, &pathErr) {
 			return nil, useMounts, filename, err
 		}
 
