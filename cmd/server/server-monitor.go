@@ -17,6 +17,10 @@ func main() {
 	router := mux.NewRouter()
 	sr := router.PathPrefix("/server-monitor").Methods(http.MethodGet).Subrouter()
 	sr.HandleFunc("/cpu", handler.GetCPUInfo)
+	sr.HandleFunc("/load", handler.GetLoadAVG)
+	sr.HandleFunc("/memory", handler.GetMemoryStatus)
+	sr.HandleFunc("/disk", handler.GetDiskStatus)
+
 	sr.Use(middleware.Logging)
 	sr.Use(middleware.DenyGetRequestsBody)
 
